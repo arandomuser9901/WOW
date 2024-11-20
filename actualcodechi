@@ -1,0 +1,118 @@
+import discord
+from discord.ext import commands, tasks
+from collections import defaultdict
+import re
+import random
+import datetime
+
+intents = discord.Intents.default()
+intents.reactions = True
+intents.messages = True
+
+bot = commands.Bot(command_prefix='!', intents=intents)
+
+# Constants
+MAIN_SERVER_ID = 1304998356589740103
+INSTAGRAM_CHANNEL_ID = 1305001583976906853
+TWITTER_CHANNEL_ID = 1305001557548466267
+TIKTOK_CHANNEL_ID = 1305001606198198313
+ARTIST_REGISTRY_CHANNEL_ID = 1305001012356055122
+PROMOTION_SERVER_ID = 1305045714002382918
+BILLBOARDSHOP_CHANNEL_ID = 1305045942327705674
+INTERVIEWSHOP_CHANNEL_ID = 1305045968227405865
+BLOGSHOP_CHANNEL_ID = 1305215806413737984
+SONGREGISTRY_CHANNEL_ID = 1305048670831378485
+PLANREGISTRY_CHANNEL_ID = 1305048381848158268
+DATE_CATEGORY_ID = 1305031144806289510
+WEBHOOK_CHANNEL_ID = 1305000120047243336
+
+# Data structures
+popularity_points = defaultdict(int)
+status_points = defaultdict(int)
+registered_artists = set()
+promotions = defaultdict(lambda: defaultdict(set))
+release_dates = {}
+
+# Helper functions
+def calculate_song_stats(artist):
+    points = popularity_points[artist]
+    status = status_points[artist]
+    if points <= 20:
+        spotify = random.randint(100000, 10000000)
+        digital_sales = random.randint(0, 4000)
+        radio_play = random.randint(100000, 4000000)
+    elif points <= 30:
+        spotify = random.randint(5000000, 15000000)
+        digital_sales = random.randint(500, 7000)
+        radio_play = random.randint(2000000, 7000000)
+    else:
+        spotify = random.randint(8000000, 18000000)
+        digital_sales = random.randint(1000, 8000)
+        radio_play = random.randint(2000000, 9000000)
+
+    multiplier = 1 + (status * 0.1) if status <= 10 else 2
+    return {
+        "Spotify": int(spotify * multiplier),
+        "Digital Sales": int(digital_sales * multiplier),
+        "Radio Play": int(radio_play * multiplier)
+    }
+
+# Event listeners
+@bot.event
+async def on_ready():
+    print(f'Logged in as {bot.user}')
+
+@bot.event
+async def on_message(message):
+    if message.channel.id in [INSTAGRAM_CHANNEL_ID, TWITTER_CHANNEL_ID, TIKTOK_CHANNEL_ID]:
+        artist_name = message.content.splitlines()[0]
+        if artist_name in registered_artists:
+            unique_reactions = set(user.id for user in await message.reactions[0].users().flatten())
+            popularity_points[artist_name] += len(unique_reactions) * 2
+
+    await bot.process_commands(message)
+
+@bot.event
+async def on_reaction_add(reaction, user):
+    if user.bot:
+        return
+    if reaction.message.channel.id in [INSTAGRAM_CHANNEL_ID, TWITTER_CHANNEL_ID, TIKTOK_CHANNEL_ID]:
+        artist_name = reaction.message.content.splitlines()[0]
+        if artist_name in registered_artists:
+            unique_reactions = set(user.id for user in await reaction.users().flatten())
+            popularity_points[artist_name] += len(unique_reactions) * 2
+
+@bot.command()
+async def register_artist(ctx, *, artist_name):
+    registered_artists.add(artist_name)
+    await ctx.send(f'{artist_name} has been registered!')
+
+@bot.command()
+async def buy_promo(ctx, promo_type, song_name, artist_name):
+    if promo_type not in promotions[artist_name][song_name]:
+        promotions[artist_name][song_name].add(promo_type)
+        if promo_type == "large_billboard":
+            popularity_points[artist_name] += 15
+        elif promo_type == "medium_billboard":
+            popularity_points[artist_name] += 10
+        elif promo_type == "small_billboard":
+            popularity_points[artist_name] += 6
+        await ctx.send(f'Promo for {song_name} by {artist_name} has been purchased!')
+
+@tasks.loop(weeks=1)
+async def update_song_stats():
+    for artist in registered_artists:
+        if artist in release_dates:
+            stats = calculate_song_stats(artist)
+            webhook_channel = bot.get_channel(WEBHOOK_CHANNEL_ID)
+            await webhook_channel.send(f'Name of Song - {artist}\n[Week, {release_dates[artist]}]\nSpotify - {stats["Spotify"]}\nDigital Sales - {stats["Digital Sales"]}\nRadio Play - {stats["Radio Play"]}')
+
+@bot.command()
+async def register_song(ctx, *, song_info):
+    lines = song_info.splitlines()
+    artist_name = lines[1].strip('` -')
+    release_date = lines[5].strip('` -')
+    release_dates[artist_name] = release_date
+    await ctx.send(f'Song registered for {artist_name} with release date {release_date}!')
+
+bot.run('https://discord.com/api/webhooks/1305216654753402900/nD3wGJt-a-I1cz3xzraN8_wZblRh4A3sP1X845l0qNqlrDVKjg8u9gaW7Teg7I_lCqvW')
